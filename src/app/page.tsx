@@ -8,56 +8,101 @@ import ROSConnectionIndicator from "@/components/ROSConnectionIndicator";
 import {
   calculateAverageSpeed,
   getSpeedHistory,
-  formatElapsedTime,
+  formatLamaJalan,
 } from "@/lib/utils";
 
 export default function HomePage() {
+  // Date and Time for Dashboard
   const d = new Date();
   const fullhour = d.toTimeString().slice(0, 5);
   const fullDate = `${d.toLocaleString("default", {
     month: "short",
   })} ${d.getDate()} of ${d.getFullYear()}`;
 
-  const [ElapsedTime, setElapsedTime] = useState(900000);
-  const [speed, setSpeed] = useState(0);
-  const [distance, setDistance] = useState(250);
-  const [averageSpeed, setAverageSpeed] = useState(0);
-  const [leftRight, setLeftRight] = useState(0);
-  const [throttle, setThrottle] = useState(0);
-  const [brake, setBrake] = useState(0);
+  // State Variables
+  const [lamaJalan, setLamaJalan] = useState(0); // in seconds
+  const [speed, setSpeed] = useState(0); // Speed state (current speed)
+  const [distance, setDistance] = useState(0); // Distance traveled
+  const [averageSpeed, setAverageSpeed] = useState(0); // Average speed
+  const [leftRight, setLeftRight] = useState(0); // Left-Right joystick value
+  const [throttle, setThrottle] = useState(0); // Throttle joystick value
+  const [brake, setBrake] = useState(0); // Brake joystick value
+  const [speedHistory, setSpeedHistory] = useState<number[]>([]); // Store speed history
 
+  // Get ROS Data (connected status and joystick data)
   const { connected, joyData } = RosComponent();
 
+  // Increment time (lamaJalan) every second
   useEffect(() => {
-    const savedDistance = localStorage.getItem("distance") || "800";
-    const savedElapsedTime = localStorage.getItem("ElapsedTime") || "900000";
-    const savedSpeedData = getSpeedHistory();
+    const interval = setInterval(() => {
+      setLamaJalan((prevLamaJalan) => prevLamaJalan + 1);
+    }, 1000); // Update every second
 
-    setDistance(parseFloat(savedDistance));
-    setElapsedTime(parseInt(savedElapsedTime, 10));
-    setAverageSpeed(calculateAverageSpeed(savedSpeedData));
+    return () => clearInterval(interval); // Cleanup interval on component unmount
   }, []);
 
+  // Update distance and average speed based on time and speed
   useEffect(() => {
-    localStorage.setItem("distance", distance.toString());
-    localStorage.setItem("ElapsedTime", ElapsedTime.toString());
-    localStorage.setItem("speedData", JSON.stringify(getSpeedHistory()));
-  }, [distance, ElapsedTime, speed]);
+    // Update distance based on current speed
+    const newDistance = speed / 3600; // speed in km/h -> distance in km per second
+    setDistance((prevDistance) => prevDistance + newDistance);
 
+    // Add the new speed to the history array
+    setSpeedHistory((prevHistory) => [...prevHistory, speed]);
+
+    // Calculate average speed based on the speed history
+    setAverageSpeed(calculateAverageSpeed([...speedHistory, speed]));
+  }, [speed, lamaJalan]); // Recalculate every second based on speed
+
+  // Load saved data from local storage on mount
+  useEffect(() => {
+    const savedDistance = localStorage.getItem("distance") || "0";
+    const savedLamaJalan = localStorage.getItem("lamaJalan") || "0";
+    const savedSpeedData = localStorage.getItem("speedData") || "[]";
+
+    setDistance(parseFloat(savedDistance));
+    setLamaJalan(parseInt(savedLamaJalan, 10));
+    setAverageSpeed(calculateAverageSpeed(JSON.parse(savedSpeedData)));
+  }, []);
+
+  // Save data to local storage when distance, speed, or time changes
+  useEffect(() => {
+    localStorage.setItem("distance", distance.toFixed(2));
+    localStorage.setItem("lamaJalan", lamaJalan.toString());
+    localStorage.setItem("speedData", JSON.stringify(speedHistory));
+  }, [distance, lamaJalan, speedHistory]);
+
+  // Update throttle, brake, left-right, and speed based on joystick data
   useEffect(() => {
     if (joyData) {
-      const newLeftRight = joyData.axes[0] * 100;
-      const newThrottle = joyData.axes[1] * 100;
-      const newBrake = joyData.axes[2] * 100;
+      const newLeftRight = joyData.axes[0] * 100; // Assuming axes[0] for left/right (-100 to 100)
+      const newThrottle = joyData.axes[1] * 100; // Assuming axes[1] for throttle (0 to 100)
+      const newBrake = joyData.axes[2] * 100; // Assuming axes[2] for brake (0 to 100)
 
       setLeftRight(newLeftRight);
       setThrottle(newThrottle);
       setBrake(newBrake);
 
-      const newSpeed = (newThrottle / 100) * 50;
+      // Update speed based on throttle
+      const newSpeed = (newThrottle / 100) * 50; // Map throttle (0-100) to speed (0-50 km/h)
       setSpeed(newSpeed);
     }
   }, [joyData]);
+
+  // Utility Functions
+  const calculateAverageSpeed = (speedHistory: number[]) => {
+    if (speedHistory.length === 0) return 0;
+    const totalSpeed = speedHistory.reduce((acc, curr) => acc + curr, 0);
+    return parseFloat((totalSpeed / speedHistory.length).toFixed(2));
+  };
+
+  const formatLamaJalan = (seconds: number) => {
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${days}d ${hours}h ${minutes}m ${secs}s`;
+  };
 
   return (
     <main className="relative bg-black h-screen">
@@ -101,17 +146,17 @@ export default function HomePage() {
           color="#00ff00"
         />
         <DashboardInfo
-          value={`${distance} km`}
+          value={`${distance.toFixed(2)} km`}
           label="DISTANCE TRAVELED"
           color="#00ff00"
         />
         <DashboardInfo
-          value={formatElapsedTime(ElapsedTime)}
+          value={formatLamaJalan(lamaJalan)}
           label="TRAVEL TIME"
           color="#00ff00"
         />
         <DashboardInfo
-          value={`${averageSpeed} km/h`}
+          value={`${averageSpeed.toFixed(2)} km/h`}
           label="AVERAGE SPEED"
           color="#00ff00"
         />
